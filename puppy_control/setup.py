@@ -20,6 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'imu = puppy_control.mpu6050Node:main',
         ],
     },
 )

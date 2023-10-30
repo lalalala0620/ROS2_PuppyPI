@@ -6,6 +6,9 @@ Copyright (c) 2015, 2016, 2017 MrTijn/Tijndagamer
 """
 from smbus2 import SMBus
 import struct#, math
+from Kalman import *
+import math
+import os
 
 class MPU6050Base:
 
@@ -227,7 +230,7 @@ class MPU6050Base:
         if gyro_range == self.GYRO_RANGE_250DEG:
             gyro_scale_modifier = self.GYRO_SCALE_MODIFIER_250DEG
         elif gyro_range == self.GYRO_RANGE_500DEG:
-            gyro_scale_modifier = self.GYRO_SCALE_MODIFIER_500DEG
+            gyro_scale_modifier = self.GYRO_SCALE_MODIFIER_500DEG  
         elif gyro_range == self.GYRO_RANGE_1000DEG:
             gyro_scale_modifier = self.GYRO_SCALE_MODIFIER_1000DEG
         elif gyro_range == self.GYRO_RANGE_2000DEG:
@@ -244,124 +247,153 @@ class MPU6050Base:
 
     def get_all_data(self):
         """Reads and returns all the available data."""
-        data = self.bus.read_i2c_block_data(self.address,self.ACCEL_XOUT0,14)
-        data = struct.unpack('>hhhhhhh',bytes(data))
+        # data = self.bus.read_i2c_block_data(self.address,self.ACCEL_XOUT0,14)
+        # data = struct.unpack('>hhhhhhh',bytes(data))
 
-        temp = (data[3] / 340.0) + 36.53
+        # temp = (data[3] / 340.0) + 36.53
 
-        accel = data[:3]
-        accel = [a/self.ACCEL_SCALE_MODIFIER_2G*self.GRAVITIY_MS2 for a in accel]
-        gyro = data[-3:]
-        gyro = [g/self.GYRO_SCALE_MODIFIER_2000DEG for g in gyro]
-        # temp = self.get_temp()
-        # accel = self.get_accel_data()
-        # gyro = self.get_gyro_data()
+        # accel = data[:3]
+        # accel = [a/self.ACCEL_SCALE_MODIFIER_2G*self.GRAVITIY_MS2 for a in accel]
+        # gyro = data[-3:]
+        # gyro = [g/self.GYRO_SCALE_MODIFIER_2000DEG for g in gyro]
+        temp = self.get_temp()
+        accel = self.get_accel_data()
+        gyro = self.get_gyro_data()
 
         return {"accel":accel, "gyro":gyro, "temp":temp}
 
-    # def _SecondOrderFilter(self):
-    #     x1=0
-    #     x2=0
-    #     y1=0
-    #     angle = 0
-    #     K2 =0.02
-    #     def fun( angle_m, gyro_m, dt = 0.01):
-    #         nonlocal x1
-    #         nonlocal x2
-    #         nonlocal y1
-    #         nonlocal angle
-    #         nonlocal K2
-    #         x1=(angle_m-angle)*(1-K2)*(1-K2)
-    #         y1=y1+x1*dt
-    #         x2=y1+2*(1-K2)*(angle_m-angle)+gyro_m
-    #         angle=angle+ x2*dt
-    #         return angle
 
-    #     return fun
+class KalmanIMU:
+    def __init__(self):
+        self.Kp = 100 
+        self.Ki = 0.002 
+        self.halfT = 0.001 
 
-    # def get_euler_angle(self, dt = 0.01):
-    #     data = self.get_all_data()
-    #     accel_Y = math.atan2(data['accel'][0],data['accel'][2])*180/math.pi
-    #     gyro_Y = data['gyro'][1]
-    #     angleY = self.SecondOrderFilterY(-accel_Y,gyro_Y,dt)
+        self.q0 = 1
+        self.q1 = 0
+        self.q2 = 0
+        self.q3 = 0
 
-    #     accel_X = math.atan2(data['accel'][1],data['accel'][2])*180/math.pi
-    #     gyro_X = data['gyro'][0]
-    #     angleX = self.SecondOrderFilterX(accel_X,gyro_X,dt)
+        self.exInt = 0
+        self.eyInt = 0
+        self.ezInt = 0
+        self.pitch = 0
+        self.roll =0
+        self.yaw = 0
+        
+        self.sensor = MPU6050Base(address=0x68,bus=1) 
+        self.sensor.set_accel_range(self.sensor.ACCEL_RANGE_2G)   
+        self.sensor.set_gyro_range(self.sensor.GYRO_RANGE_250DEG)  
+        
+        self.kalman_filter_AX =  Kalman_filter(0.001,0.1)
+        self.kalman_filter_AY =  Kalman_filter(0.001,0.1)
+        self.kalman_filter_AZ =  Kalman_filter(0.001,0.1)
 
-    #     # return {'pitch':0, 'roll':0, 'yaw':0}
-    #     return {'pitch':-math.radians(angleX), 'roll':-math.radians(angleY), 'yaw':0}
+        self.kalman_filter_GX =  Kalman_filter(0.001,0.1)
+        self.kalman_filter_GY =  Kalman_filter(0.001,0.1)
+        self.kalman_filter_GZ =  Kalman_filter(0.001,0.1)
+        
+        self.Error_value_accel_data,self.Error_value_gyro_data=self.average_filter()
+    
+    def average_filter(self):
+        sum_accel_x=0
+        sum_accel_y=0
+        sum_accel_z=0
+        
+        sum_gyro_x=0
+        sum_gyro_y=0
+        sum_gyro_z=0
+        
+        for i in range(100):
+            accel_data = self.sensor.get_accel_data()   
+            gyro_data = self.sensor.get_gyro_data()      
+            
+            sum_accel_x+=accel_data['x']
+            sum_accel_y+=accel_data['y']
+            sum_accel_z+=accel_data['z']
+            
+            sum_gyro_x+=gyro_data['x']
+            sum_gyro_y+=gyro_data['y']
+            sum_gyro_z+=gyro_data['z']
+            
+        sum_accel_x/=100
+        sum_accel_y/=100
+        sum_accel_z/=100
+        
+        sum_gyro_x/=100
+        sum_gyro_y/=100
+        sum_gyro_z/=100
+        
+        accel_data['x']=sum_accel_x
+        accel_data['y']=sum_accel_y
+        accel_data['z']=sum_accel_z-9.8
+        
+        gyro_data['x']=sum_gyro_x
+        gyro_data['y']=sum_gyro_y
+        gyro_data['z']=sum_gyro_z
+        return accel_data,gyro_data
+    
+    def get_orientation_data(self):
+        accel_data = self.sensor.get_accel_data()    
+         
+        gyro_data = self.sensor.get_gyro_data() 
+        ax=self.kalman_filter_AX.kalman(accel_data['x']-self.Error_value_accel_data['x'])
+        ay=self.kalman_filter_AY.kalman(accel_data['y']-self.Error_value_accel_data['y'])
+        az=self.kalman_filter_AZ.kalman(accel_data['z']-self.Error_value_accel_data['z'])
+        gx=self.kalman_filter_GX.kalman(gyro_data['x']-self.Error_value_gyro_data['x'])
+        gy=self.kalman_filter_GY.kalman(gyro_data['y']-self.Error_value_gyro_data['y'])
+        gz=self.kalman_filter_GZ.kalman(gyro_data['z']-self.Error_value_gyro_data['z'])
 
+        norm = math.sqrt(ax*ax+ay*ay+az*az)
+        
+        ax = ax/norm
+        ay = ay/norm
+        az = az/norm
+        
+        vx = 2*(self.q1*self.q3 - self.q0*self.q2)
+        vy = 2*(self.q0*self.q1 + self.q2*self.q3)
+        vz = self.q0*self.q0 - self.q1*self.q1 - self.q2*self.q2 + self.q3*self.q3
+        
+        ex = (ay*vz - az*vy)
+        ey = (az*vx - ax*vz)
+        ez = (ax*vy - ay*vx)
+        
+        self.exInt += ex*self.Ki
+        self.eyInt += ey*self.Ki
+        self.ezInt += ez*self.Ki
+        
+        gx += self.Kp*ex + self.exInt
+        gy += self.Kp*ey + self.eyInt
+        gz += self.Kp*ez + self.ezInt
+        
+        self.q0 += (-self.q1*gx - self.q2*gy - self.q3*gz)*self.halfT
+        self.q1 += (self.q0*gx + self.q2*gz - self.q3*gy)*self.halfT
+        self.q2 += (self.q0*gy - self.q1*gz + self.q3*gx)*self.halfT
+        self.q3 += (self.q0*gz + self.q1*gy - self.q2*gx)*self.halfT
+        
+        norm = math.sqrt(self.q0*self.q0 + self.q1*self.q1 + self.q2*self.q2 + self.q3*self.q3)
+        self.q0 /= norm
+        self.q1 /= norm
+        self.q2 /= norm
+        self.q3 /= norm
 
-
- 
+        orientation = {'q0': self.q0, 'q1': self.q1, 'q2': self.q2, 'q3':self.q3}
+        # pitch = math.asin(-2*self.q1*self.q3+2*self.q0*self.q2)*57.3
+        # roll = math.atan2(2*self.q2*self.q3+2*self.q0*self.q1,-2*self.q1*self.q1-2*self.q2*self.q2+1)*57.3
+        # yaw = math.atan2(2*(self.q1*self.q2 + self.q0*self.q3),self.q0*self.q0+self.q1*self.q1-self.q2*self.q2-self.q3*self.q3)*57.3
+        # self.pitch = pitch
+        # self.roll =roll
+        # self.yaw = yaw
+        # return [self.q0,self.q1,self.q2,self.q3]
+        # return self.roll , self.pitch, self.yaw
+        return {"orientation":orientation}
 
 
 if __name__ == "__main__":
     import time
-    # import matplotlib.pyplot as plt
-    # # plt.ion() #开启interactive mode 成功的关键函数
-    # plt.figure(1)
-    # # plt.xlim([0.05, 0.15])
-    # # plt.ylim([-0.16, -0.1])
-    # plt.grid(linestyle='-', linewidth='0.5', color='gray')
-    # pltX = [[],[],[],[]]
-    # pltY = [[],[],[],[]]
-    # x = 0
 
-    mpu = MPU6050()
-    timeLast = time.time()
-    timeLast2 = time.time()
+    mpu = KalmanIMU()
+    time1=time.time()
     while True:
-        
-        # timeLast = time.time()
-        if time.time() - timeLast < 0.01:
-            time.sleep(0.00001)
-            continue
-        timeLast = time.time()
-
-        data = mpu.get_angle()
-        # print('temperature',mpu.get_temp())
-        # accel_data = mpu.get_accel_data()
-        # print(accel_data)
-        # print(accel_data['x'])
-        # print(accel_data['y'])
-        # print(accel_data['z'])
-        # gyro_data = mpu.get_gyro_data()
-        # print(gyro_data)
-        # print(gyro_data['x'])
-        # print(gyro_data['y'])
-        # print(gyro_data['z'])
-        # print('get_accel_data',time.time()-timeLast)
-
-        # timeLast = time.time()
-
-        # angle_Y = math.atan2(data['accel'][0],data['accel'][2])*180/math.pi
-        # Gyro_Y = data['gyro'][1]
-
-        # angleY = mpu.SecondOrderFilterX(angle_Y,-Gyro_Y)
-        
-
-        # if x > 3:
-        # pltX[0].append(x)
-        # pltY[0].append(angleY)
-        # pltX[1].append(x)
-        # pltY[1].append(angleYY)
-        # x += 1
-
-        # oula = IMUupdate(data['accel'][0],data['accel'][1],data['accel'][2],
-        # data['gyro'][0], data['gyro'][1], data['gyro'][2])
-        
-        # print('oula=',oula)
-        # print(time.time()-timeLast)
-        if time.time() - timeLast2 >= 0.1:
-            timeLast2 = time.time()
-        #     # print('accel_data',accel_data)
-            print(data)
-            # plt.plot(pltX[0], pltY[0],'r--o',pltX[1], pltY[1],'g--v')
-            # plt.pause(0.001)
-
-            # print('oula=',oula)
-        # time.sleep(0.0015)
-
-        # print(time.time()-timeLast)
+        time.sleep(0.05)
+        print(mpu.get_orientation_data())
