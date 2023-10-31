@@ -25,7 +25,6 @@ class MPU6050Publisher(Node):
 
         self.data = self.imu.get_all_data()
         self.orientation_data = self.KalmanIMU.get_orientation_data()
-        # print(self.data['accel']['x'])
         self.imu_msg.linear_acceleration.x = self.data['accel']['x']
         self.imu_msg.linear_acceleration.y = self.data['accel']['y']
         self.imu_msg.linear_acceleration.z = self.data['accel']['z']
