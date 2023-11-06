@@ -13,7 +13,7 @@ PWMServo_IO_dict = {1:4, 2:18, 3:27, 4:10, 5:20, 6:19, 7:13, 8:6, 9:11, 10:5}
 # 值：表示连接到树莓派的GPIO编号
 
 # ServoDeviationPath = os.path.dirname(__file__)+'/ServoDeviation.json'
-ServoDeviationPath = '/home/ubuntu/puppypi/PuppyPi_PC_Software/ServoDeviation.json'
+ServoDeviationPath = '/home/puppypi/PuppyPI_ws/src/puppy_control/driver/ServoDeviation.json'
 
 class PWMServo:
     def __init__(self,PWMServo_IO_dict = PWMServo_IO_dict):
@@ -61,9 +61,17 @@ class PWMServo:
     def setPulse(self, id, p, servo_run_time = 0):
         # if servo_run_time < 20:servo_run_time = 20
         # if servo_run_time > 30000:servo_run_time = 30000
-        if p < 500 or p > 2500:
+        # if p == 0:
+        #     print("0")
+        #     self.pigpio.set_servo_pulsewidth(self.servo[id], p)
+        if ((p < 500 or p > 2500) and p != 0):
             print("Angle is out of range")
             return False
+        if p == 0:
+            print("0")
+            self.pigpio.set_servo_pulsewidth(self.servo[id], 0)
+            time.sleep(0.5)
+            return 
         if p < self.servo_pwm_threshold[id]['min']:p = self.servo_pwm_threshold[id]['min']
         if p > self.servo_pwm_threshold[id]['max']:p = self.servo_pwm_threshold[id]['max']
         
@@ -85,6 +93,7 @@ class PWMServo:
                 p += self.servo_pwm_deviation[id]
                 if p < 500:p=500
                 elif p > 2500:p = 2500
+            print(p)
             self.pigpio.set_servo_pulsewidth(self.servo[id], p)
     # def setPulseMult(self, pp, servo_run_time):
     #     for p in enumerate(pp):
