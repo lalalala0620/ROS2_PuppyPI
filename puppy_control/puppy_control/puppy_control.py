@@ -13,14 +13,13 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Imu, JointState
 
 sys.path.append('/home/puppypi/PuppyPI_ws/src/puppy_control/driver')
-import ServoCmd
-from ServoCmd import puppyMove
+from ControlCmd import ControlCmd
 
 
 class Puppy(Node):
     def __init__(self):
         super().__init__('puppy_control')
-        ServoCmd.puppy.setSpeed(1)
+        self.controlCmd = ControlCmd()
         self.leg_height = 15
         self.cmd_subscriber_ = self.create_subscription(Twist, 'cmd_vel', self.cmd_callback, 1)
         self.cmd_subscriber_  # prevent unused variable warning
@@ -43,7 +42,7 @@ class Puppy(Node):
                 left_leg_move  = 1
                 right_leg_move = -1
 
-        ServoCmd.puppyMove(left_leg_move, right_leg_move, self.leg_height)
+        self.controlCmd.puppyMove(left_leg_move, right_leg_move, self.leg_height)
 
         self.get_logger().info('I heard: "%s"' % msg)
 
@@ -58,7 +57,6 @@ def main(args=None):
     # Destroy the node explicitly
     # (optional - otherwise it will be done automatically
     # when the garbage collector destroys the node object)
-    ServoCmd.allServoRelease()
     PuppyControl.destroy_node()
     rclpy.shutdown()
 

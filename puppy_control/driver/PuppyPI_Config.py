@@ -3,6 +3,7 @@ LOWER_LEG_LENGTH = 83
 
 upper_leg_length = 76
 lower_leg_length = 83
+puppy_height = 80
 leg_1_x = 50
 leg_2_x = 50
 leg_3_x = 50
